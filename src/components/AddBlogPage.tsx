@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase'; // Assuming your Supabase client is initialized here
 import  ReactQuill  from 'react-quill';
-import 'react-quill/dist/quill.snow.css'; // Import Quill's CSS
+import 'react-quill/dist/quill.snow.css'; // Import Quill's CSS..
 import {
   PlusCircle, Save, Loader2, X, ImagePlus, Tag, List,
   FileText, CheckCircle, AlertCircle, Trash2,
