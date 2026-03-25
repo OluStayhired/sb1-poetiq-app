@@ -33,5 +33,16 @@ export default {
   },
   plugins: [require('@tailwindcss/typography'),
   require('@tailwindcss/aspect-ratio'),
+
+  // Add this function below:
+  function({ addBase }) {
+    addBase({
+      'html': { 
+        'zoom': '0.8', // Or '80%'
+        '-moz-transform': 'scale(0.8)', // Fallback for older Firefox versions
+        '-moz-transform-origin': 'top left',
+      },
+    })
+  },
  ],
 };
