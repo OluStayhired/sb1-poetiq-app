@@ -1,0 +1,1486 @@
+// src/components/UserDashboard.tsx
+import React, { useState, useEffect } from 'react';
+import { 
+  Calendar, 
+  FileEdit, 
+  CalendarSearch, 
+  PlusCircle, 
+  Clock, 
+  CheckCircle, 
+  XCircle, 
+  Send, 
+  TrendingUp, 
+  BarChart4, 
+  CalendarDays,
+  Loader2,
+  Rocket,
+  Sparkles,
+  Flame,
+  ArrowRight,
+  CalendarCheck,
+  ChevronRight, 
+  Layers,
+  LayoutDashboard,
+  Save,
+} from 'lucide-react';
+import { supabase } from '../lib/supabase';
+//import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { format, addDays, parseISO, isWithinInterval, startOfWeek, endOfWeek } from 'date-fns';
+import { ScheduledPostsToday } from './ScheduledPostsToday';
+import { DraftPostModal } from './DraftPostModal';
+import { DraftPostModalDashboard } from './DraftPostModalDashboard';
+import { FirstPostModal } from './FirstPostModal';
+import { CalendarListSidePanel } from './CalendarListSidePanel';
+import { WelcomeGuide } from './WelcomeGuide';
+import { OnboardSuccessPage } from '../components/OnboardSuccessPage'; 
+import { SaveAndClosePage } from './SaveAndClosePage';
+import { CreateCalendarForm } from '/src/components/CreateCalendarForm'; 
+import { TooltipHelp } from '../utils/TooltipHelp';
+import { TooltipExtended } from '../utils/TooltipExtended';
+import { UpgradePlanModal } from './UpgradePlanModal'
+import { useProductTier } from '../hooks/useProductTierHook'
+import { OnboardingModal } from '../components/OnboardingModal'; // NEW: Import the OnboardingModal component
+import VideoPillButton from './VideoPillButton';
+import VideoPlayerModal from './VideoPlayerModal';
+import { CalendarView } from '/src/components/CalendarView';
+
+interface DashboardMetrics {
+  todayPosts: {
+    total: number;
+    disabled: number;
+    scheduled: number;
+    sent: number;
+  };
+  drafts: number;
+  calendars: {
+    total: number;
+    active: number;
+    inactive: number;
+  };
+  streak: number;
+  nextWeekPosts: number;
+}
+
+interface WelcomeGuideCompleteData {
+  status: 'success' | 'error' | 'info'; 
+  selectedSocialChannel?: 'Bluesky' | 'Twitter' | 'LinkedIn'; 
+  contentGenerated?: boolean;
+  save_close: boolean; 
+  postContent?: string; 
+  first_post?: string; 
+  postContentId?: string;
+}
+
+interface UserPreferences {
+  on_boarding_active: boolean | null; // NEW: Add this property to your interface
+  // Add other user preference fields as needed for the dashboard
+}
+
+export function UserDashboard() {
+  const [metrics, setMetrics] = useState<DashboardMetrics>({
+    todayPosts: { total: 0, disabled: 0, scheduled: 0, sent: 0 },
+    drafts: 0,
+    calendars: { total: 0, active: 0, inactive: 0 },
+    streak: 0,
+    nextWeekPosts: 0
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isScheduledPostsOpen, setIsScheduledPostsOpen] = useState(false);
+  const [isDraftPostsOpen, setIsDraftPostsOpen] = useState(false);
+  const [isCalendarListOpen, setIsCalendarListOpen] = useState(false);
+  const [isLoadingPost, setIsLoadingPost] = useState(false);
+  const navigate = useNavigate();
+  const [isWelcomeGuideOpen, setIsWelcomeGuideOpen] = useState(false);
+  const [firstPostContent, setFirstPostContent] = useState<string | null>(null);
+  const [firstPostId, setFirstPostId] = useState<string | null>(null);
+
+  // States for controlling these self-contained modals
+  const [showOnboardSuccess, setShowOnboardSuccess] = useState(false);
+  const [showSaveAndCloseSuccess, setShowSaveAndCloseSuccess] = useState(false);
+  const [onboardSuccessPostContent, setOnboardSuccessPostContent] = useState<string | null>(null);
+  const [saveAndClosePostContent, setSaveAndClosePostContent] = useState<string | null>(null);
+  const [connectedAccounts, setConnectedAccounts] = useState<SocialChannelAccount[]>([]);
+  const [selectedContentIdeaId, setSelectedContentIdeaId] = useState<string | null>(null); // To match selectedContentIdea prop
+  const [currentPostIdeaRecord, setCurrentPostIdeaRecord] = useState<FirstPostIdeaRecord | null>(null); // To match postToUpdate prop
+  const [isFirstPostModalOpen, setIsFirstPostModalOpen] = useState(false);
+ //const [isCreateCalendarFormOpen, setIsCreateCalendarFormOpen] = useState(false);
+
+  // Check Limits Based on Product Tier
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [isCheckingLimits, setIsCheckingLimits] = useState(false);
+  const [userMessage, setUserMessage] = useState('');
+  const [modalMessage, setModalMessage] = useState('');
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // State to control the visibility of the OnboardingModal
+  const [onboardingActive, setOnboardingActive] = useState<boolean | null>(null);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(true); // Example dashboard loading state
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
+
+  
+  const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const [currentVideoUrl, setCurrentVideoUrl] = useState('');
+  const [currentPlayingVideoUrl, setCurrentPlayingVideoUrl] = useState('');
+
+
+// Handler to open the modal and set the video URL
+  const handlePlayVideo = (url: string) => {
+    setCurrentPlayingVideoUrl(url);
+    setIsVideoModalOpen(true);
+  };
+
+  // Handler to close the modal
+  const handleCloseVideoModal = () => {
+    setIsVideoModalOpen(false);
+    setCurrentPlayingVideoUrl('');
+  };
+
+const videoUrlSchedule = "https://selrznkggmoxbpflzwjz.supabase.co/storage/v1/object/public/user-post-images/help_video_schedule_manual_post.mp4"; 
+const thumbnailUrlSchedule = "https://selrznkggmoxbpflzwjz.supabase.co/storage/v1/object/public/user-post-images/square_schedule_posts_manual.png";
+const videoDescriptionSchedule = "Learn the basics of scheduling posts"  ;
+const videoTitleSchedule = "Scheduling Posts";  
+
+const videoUrlCreateCampaign = "https://selrznkggmoxbpflzwjz.supabase.co/storage/v1/object/public/user-post-images/create_campaign_video_with_voice.mp4"; 
+const thumbnailUrlCreateCampaign = "https://selrznkggmoxbpflzwjz.supabase.co/storage/v1/object/public/user-post-images/square_help_create_campaign.png";  
+const videoDescriptionCreateCampaign = "Learn how to create campaigns" ;
+const videoTitleCreateCampaign = "Getting Started" ;
+
+const videoUrlCampaignOverview = "https://selrznkggmoxbpflzwjz.supabase.co/storage/v1/object/public/user-post-images/quick_overview_create_campaigns.mp4"; 
+const thumbnailUrlCampaignOverview = "https://selrznkggmoxbpflzwjz.supabase.co/storage/v1/object/public/user-post-images/get_quick_overview_of_campaigns.png";  
+const videoDescriptionCampaignOverview = "Save time, write better posts faster" ;
+const videoTitleCampaignOverview = "Quick Campaign Guide" ;  
+
+  // Define a consistent primary color for easy  changes
+const PRIMARY_COLOR_CLASSES = {
+  bg: 'bg-blue-600',
+  text: 'text-blue-600',
+  textLight: 'text-blue-500',
+  border: 'border-blue-200',
+  hoverBg: 'hover:bg-blue-700',
+  gradientFrom: 'from-blue-500',
+  gradientTo: 'to-blue-700',
+};
+
+const ACCENT_COLOR_CLASSES = {
+  successBg: 'bg-emerald-500',
+  successText: 'text-emerald-600',
+  warningBg: 'bg-amber-500',
+  warningText: 'text-amber-600',
+};
+
+// function to determine email for use in the component
+  const fetchUserIdAndEmail = async () => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user) {
+      const userEmail = session.user.email;
+      const userId = session.user.id;
+      setCurrentUserEmail(userEmail);
+      setCurrentUserId(userId);
+    } else {
+      console.warn('No user found in session.');
+      setCurrentUserEmail(null);
+      setCurrentUserId(null);
+    }
+  } catch (error) {
+    console.error('Error fetching user session:', error);
+    setCurrentUserEmail(null);
+    setCurrentUserId(null);
+  }
+};  
+
+useEffect(() => {
+  fetchUserIdAndEmail();
+
+  const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    fetchUserIdAndEmail();
+  });
+
+  return () => {
+    subscription?.unsubscribe();
+  };
+}, []);  
+  
+useEffect(() => {
+  const fetchInitialPost = async () => {
+    setIsLoadingPost(true); // Set loading to true when starting the fetch
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const currentUserId = session?.user?.id; // Renamed to `currentUserId` to avoid confusion
+
+    // --- Authentication Check ---
+    if (!currentUserId) {
+      console.warn('User not logged in or session expired. Cannot fetch initial post.');
+      setIsWelcomeGuideOpen(true); // Open WelcomeGuide if no user is logged in
+      setIsLoadingPost(false);
+      return; // Exit the function early
+    }
+
+    // --- Fetch the user's latest 'first_post_idea' ---
+    const { data: post, error } = await supabase
+      .from('first_post_idea')
+      .select('id, first_post, content, target_audience, in_progress, welcome_complete, save_close')
+      .eq('user_id', currentUserId) // Use the defined `currentUserId` here
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 indicates no rows found
+      console.error('Error fetching initial post:', error);
+      setIsWelcomeGuideOpen(true); // Open WelcomeGuide on other errors
+    } else if (post) {
+      setCurrentPostIdeaRecord(post);
+      setSelectedContentIdeaId(post.id);
+
+      // Decide whether to open WelcomeGuide based on post status
+      if (post.in_progress === true && post.welcome_complete === false) {
+
+        console.log('UserDashboard: In-progress first post found. Treating as completed, showing success page.');
+        setOnboardSuccessPostContent(post.first_post || null); // Pass content
+        setShowOnboardSuccess(true);
+        setIsWelcomeGuideOpen(false);
+
+        const { error: updateError } = await supabase
+          .from('first_post_idea')
+          .update({ in_progress: false, welcome_complete: true })
+          .eq('id', post.id);
+
+        if (updateError) {
+          console.error('UserDashboard: Error resetting in_progress/welcome_complete status after showing success:', updateError);
+        } else {
+          console.log('UserDashboard: in_progress/welcome_complete status reset for post ID after showing success:', post.id);
+        }
+
+      } else if (post.welcome_complete === true || post.save_close === true) {
+        //console.log('UserDashboard: Welcome flow already completed or saved and closed.');
+        setIsWelcomeGuideOpen(false);
+      } else {
+        
+        //console.log('UserDashboard: Post found in unexpected state or not yet completed. Opening WelcomeGuide.');
+        setIsWelcomeGuideOpen(true);
+      }
+    } else {
+      console.log('UserDashboard: No post history found. Opening WelcomeGuide for a fresh start.');
+      setIsWelcomeGuideOpen(true);
+    }
+    setIsLoadingPost(false); 
+  };
+  fetchInitialPost();
+}, []);
+
+// Initialize the hooks
+const location = useLocation();
+//const navigate = useNavigate();
+const [searchParams] = useSearchParams();  
+
+const twitterConnectedUser = connectedAccounts.find(acc => acc.social_channel === 'Twitter');  
+const linkedinConnectedUser = connectedAccounts.find(acc => acc.social_channel === 'LinkedIn');  
+const blueskyConnectedUser = connectedAccounts.find(acc => acc.social_channel === 'Bluesky'); 
+
+
+ useEffect(() => {
+    const loadDashboardData = async () => {
+      setIsLoadingDashboard(true);
+      setOnboardingError(null); // Clear previous errors
+
+      if (!currentUserId) {
+        setIsLoadingDashboard(false);
+        setOnboardingError('User not authenticated.');
+        return;
+      }
+
+      try {
+        // Fetch the on_boarding_active value from user_preferences
+        const { data, error } = await supabase
+          .from('user_preferences')
+          .select('on_boarding_active') // Select only the desired column
+          .eq('user_id',currentUserId)
+          .single();
+
+        if (error && error.code !== 'PGRST116') { // PGRST116 means no rows found
+          throw error;
+        }
+
+        // Set the onboardingActive state based on the fetched data
+        // Default to true if the column is null or not found (assuming active onboarding by default)
+        const fetchedOnboardingActive = data?.on_boarding_active ?? true;
+        setOnboardingActive(fetchedOnboardingActive);
+
+        // Simulate other dashboard data loading
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // NEW: Use the onboardingActive constant to decide whether to show the modal
+        // If on_boarding_active is true, show the modal
+        if (fetchedOnboardingActive) {
+          setShowOnboardingModal(true);
+        } else {
+          setShowOnboardingModal(false);
+        }
+
+      } catch (err: any) {
+        console.error('Error loading dashboard data or onboarding status:', err);
+        setOnboardingError(`Failed to load dashboard: ${err.message}`);
+        setOnboardingActive(false); // Ensure modal is closed on error
+      } finally {
+        setIsLoadingDashboard(false);
+      }
+    };
+
+    loadDashboardData();
+  }, [currentUserId]); // Re-run when user ID changes
+  
+
+//------------------ Start Upgrade Modal and Limits Checks Here --------------------------//
+//========================================================================================//  
+  
+//---- NEW Hook to Capture all Account Type Paramenters -----//
+    const {
+    isLoading: isProductLoading, //changed from isLoading
+    error: errorProduct, //changed from error
+    userPreferences,
+    productTierDetails,
+    isFreePlan,
+    isEarlyAdopter, // New variable
+    isTrialUser,
+    isPaidPlan,
+    canCreateMoreCampaigns,
+    canAddMoreSocialAccounts,
+    isTrialExpiringSoon,
+    daysUntilTrialExpires,
+    showFirstTrialWarning,
+    showSecondTrialWarning,
+    showFinalTrialWarning,
+    //on_boarding_active,
+    max_calendar,
+    max_social_accounts,
+    remainingCampaigns,
+    remainingSocialAccounts,
+  } = useProductTier(supabase, currentUserEmail);  
+  
+
+// Define specific limits
+const MAX_FREE_CAMPAIGNS = max_calendar;
+const MAX_FREE_ACCOUNTS = max_social_accounts;
+const FREE_TRIAL_DAYS =   daysUntilTrialExpires
+type ActionType = 'createCampaign' | 'addAccount' | 'freeTrialEnded';
+
+
+//----------- Start Check Limits Function -------------------- //
+// This refined function checks limits specific to the requested action
+
+  const checkActionLimits = async (action: ActionType): Promise<boolean> => {
+    setIsCheckingLimits(true);
+    setUserMessage('');
+    setModalMessage(''); // Clear previous modal message
+    setIsUpgradeModalOpen(false);
+
+    console.log(`[checkActionLimits] Action requested: ${action}`);
+
+    try {
+        const { data: userPreferences, error: supabaseError } = await supabase
+            .from('user_preferences')
+            .select('account_type, total_campaign, social_accounts, user_tenure') // <-- SELECTING 'total_campaign' and 'social_accounts'
+            .eq('user_id', currentUserId)
+            .single();
+
+        if (supabaseError || !userPreferences) {
+            console.error("[checkActionLimits] Error fetching user preferences:", supabaseError?.message || "No data returned.");
+            setUserMessage('Could not retrieve account details. Please try again.');
+            return false;
+        }
+        const limitedAccountTypes = ['Free Plan', 'Early Adopter']; // Define the types that have this limit
+         switch (action) {
+            case 'createCampaign':
+            // Correct variable name for campaign-related checks
+              const isLimitedCampaignAccountType = limitedAccountTypes.includes(userPreferences.account_type);
+              const hasExceededCampaigns = remainingCampaigns <= 0 ;       
+              if (isLimitedCampaignAccountType && hasExceededCampaigns) {
+        setModalMessage(`You have reached your limit of ${MAX_FREE_CAMPAIGNS} campaigns for your ${userPreferences.account_type} plan. Upgrade to create more!`);
+        setIsUpgradeModalOpen(true);
+        console.log("[checkActionLimits] Limit exceeded for createCampaign. Returning false.");
+        return false;
+      }
+      break;
+          case 'addAccount':
+            // Correct variable name for addAccount-related checks
+            const isLimitedAccountAccountType = limitedAccountTypes.includes(userPreferences.account_type);
+            const hasExceededAccounts = (userPreferences.social_accounts || 0) >= MAX_FREE_ACCOUNTS;
+              if (isLimitedAccountAccountType && hasExceededAccounts) {
+                setModalMessage(`You have reached your limit of ${MAX_FREE_ACCOUNTS} connected accounts for your ${userPreferences.account_type}. Upgrade to connect more!`);
+                setIsUpgradeModalOpen(true);
+
+                console.log("[checkActionLimits] Limit exceeded for addAccount. Returning false.");
+
+              return false;
+
+            }
+      break;
+            case 'freeTrialEnded':
+              // Correct variable name for addAccount-related checks
+              const isLimitedFreeTrialAccountType = limitedAccountTypes.includes(userPreferences.account_type);
+              if (isLimitedFreeTrialAccountType && (daysUntilTrialExpires <= 0)) {
+                  
+                setModalMessage(`Your Free Trial on SoSavvy has ended for your ${userPreferences.account_type}. Upgrade your account to Pro Plan to continue creating posts!`);
+                setIsUpgradeModalOpen(true);
+                console.log("[checkActionLimits] Limit exceeded for freeTrials. Returning false.");
+          
+                return false;
+              }
+        break;             
+        
+        default:
+                console.warn(`[checkActionLimits] Unknown action type for limit check: ${action}`);
+                return false; // Or throw error
+        }
+
+        return true;
+
+    } catch (e: any) {
+        console.error("[checkActionLimits] Unhandled error during limit check:", e.message);
+        setUserMessage('An unexpected error occurred during limit check. Please try again.');
+        return false;
+    } finally {
+        setIsCheckingLimits(false);
+    }
+};
+
+//------------- End Check Limits Function -------------------- //  
+  
+ // handle UpgradeModal Open
+  const handleOpenUpgradeModal = () => {
+    setIsUpgradeModalOpen(true);
+  };
+
+  // Function to close the modal
+  const handleCloseUpgradeModal = () => {
+    setIsUpgradeModalOpen(false);
+  };
+
+//------------------ End Upgrade Modal and Limits Checks Here --------------------------//
+//========================================================================================//
+
+  
+  
+// --------- Start Helper function to handle connection success flow (for URL params) -------- //
+const handleConnectionSuccess = async (connectedChannel: string, contentFromModal?: string | null) => {
+    console.log(`UserDashboard: Detected successful ${connectedChannel} connection.`);
+    setIsLoadingPost(true); // Set loading state at the beginning
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const currentUserId = session?.user?.id;
+
+    try {
+        let postContentToUse: string | null = null;
+        let postIdToUpdate: string | null = null;
+
+        if (contentFromModal !== undefined) { // Check if content was passed directly (from  Bluesky modal)
+            postContentToUse = contentFromModal;
+            console.log(`Using post content from modal for ${connectedChannel} connection.`);
+
+        } else {
+            // This path is for LinkedIn and Twitter  (via URL parameters)
+            console.log(`Fetching post content for ${connectedChannel} connection from database.`);
+            const { data: postToUpdate, error: fetchError } = await supabase
+                .from('first_post_idea')
+                .select('id, welcome_complete, first_post')
+                .eq('user_id', currentUserId)
+                .eq('welcome_complete', false) // Look for incomplete welcome flows
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (fetchError && fetchError.code !== 'PGRST116') {
+                console.error(`Error fetching post for welcome_complete update after ${connectedChannel} connection:`, fetchError);
+            } else if (postToUpdate) {
+                postContentToUse = postToUpdate.first_post || null;
+                postIdToUpdate = postToUpdate.id; // Store ID for potential update
+
+                const { error: updateError } = await supabase
+                    .from('first_post_idea')
+                    .update({ welcome_complete: true })
+                    .eq('id', postIdToUpdate); // Update using the fetched ID
+
+                if (updateError) {
+                    console.error(`Error setting welcome_complete to true after ${connectedChannel} connection:`, updateError);
+                } else {
+                    console.log(`Successfully updated welcome_complete to true for post ID: ${postIdToUpdate}`);
+                }
+            } else {
+                console.log(`No specific pending post found to mark welcome_complete after ${connectedChannel} connection (via URL param).`);
+            }
+        }
+
+        // Set the content for the OnboardSuccessPage modal
+        setOnboardSuccessPostContent(postContentToUse);
+
+        // Show the success modal and close the WelcomeGuide modal
+        setShowOnboardSuccess(true);
+        setIsWelcomeGuideOpen(false);
+
+    } catch (dbErr) {
+        console.error(`Database error during welcome_complete update after ${connectedChannel} connection:`, dbErr);
+    } finally {
+        // Clear URL parameters ONLY if the connection came from URL (LinkedIn/Twitter)
+        if (connectedChannel === 'LinkedIn' || connectedChannel === 'Twitter') {
+            const newSearchParams = new URLSearchParams(searchParams);
+            newSearchParams.delete('linkedin_connected');
+            newSearchParams.delete('twitter_connected');
+            newSearchParams.delete('context');
+            newSearchParams.delete('oauth_error');
+            navigate(`${location.pathname}?${newSearchParams.toString()}`, { replace: true });
+        }
+        setIsLoadingPost(false); // End loading state
+    }
+};      
+      // ---- End Handle Connection Success Function ------//  
+
+// Consolidated function to check and load flow status
+    const checkAndLoadFlowStatus = async () => {
+        setIsLoadingPost(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+
+        if (!userId) {
+            console.warn('UserDashboard: No authenticated user found. Cannot check post status.');
+            setIsLoadingPost(false);
+            return;
+        }
+
+        const linkedInConnected = searchParams.get('linkedin_connected');
+        const twitterConnected = searchParams.get('twitter_connected'); // <--- NEW: Get Twitter param
+        const context = searchParams.get('context'); // Still retrieve to clear it
+        const oauthError = searchParams.get('oauth_error');
+
+        // --- HANDLE LINKEDIN OR TWITTER CONNECTION SUCCESS (from URL params) ---
+        if (linkedInConnected === 'true' || twitterConnected === 'true') {
+            await handleConnectionSuccess(linkedInConnected === 'true' ? 'LinkedIn' : 'Twitter');
+            return; // Exit function after handling connection
+        }
+
+        // --- HANDLE OAUTH ERRORS (from URL params) ---
+        if (oauthError) {
+            console.error('UserDashboard: OAuth error detected:', oauthError);
+            // You might want to display a user-friendly error message or toast here
+
+            const newSearchParams = new URLSearchParams(searchParams);
+            newSearchParams.delete('linkedin_connected');
+            newSearchParams.delete('twitter_connected');
+            newSearchParams.delete('context');
+            newSearchParams.delete('oauth_error');
+            navigate(`${location.pathname}?${newSearchParams.toString()}`, { replace: true });
+
+            setIsLoadingPost(false);
+            // Ensure WelcomeGuide is closed if there was an OAuth error
+            setIsWelcomeGuideOpen(false); 
+            return; // Exit function after handling error
+        }
+
+        // --- THIS BLOCK ONLY RUNS IF NO CONNECTION SUCCESS OR OAUTH ERROR WAS DETECTED IN URL PARAMS ---
+        // This is for users returning to the dashboard where:
+        // 1. There's an `in_progress` post (meaning they started the guide, generated post, but didn't finish via connection/save&close).
+        // 2. Or, they are a genuinely new user with no post history.
+        try {
+            const { data: post, error } = await supabase
+                .from('first_post_idea')
+                .select('id, first_post, in_progress, welcome_complete')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false }) // Get the latest post
+                .limit(1)
+                .single();
+
+            if (error && error.code !== 'PGRST116') {
+                console.error('UserDashboard: Error fetching user post status:', error);
+                setFirstPostContent(null);
+                setFirstPostId(null);
+                // If error, and no post, open WelcomeGuide for a fresh start
+                setIsWelcomeGuideOpen(true); 
+            } else if (post) {
+                // If a post record exists, check its status
+                if (post.in_progress === true && post.welcome_complete === false) {
+                    // Scenario: User started guide, generated post, but didn't explicitly finish/connect.
+                    // Based on your instruction: Treat this as "completed enough" to show success.
+                    console.log('UserDashboard: In-progress first post found. Treating as completed, showing success page.');
+
+                    setFirstPostContent(post.first_post); // Keep content for OnboardSuccessPage
+                    setFirstPostId(post.id);
+
+                    setShowOnboardSuccess(true); // <<< CHANGED: Show OnboardSuccessPage here
+                    setIsWelcomeGuideOpen(false); // <<< CHANGED: Ensure WelcomeGuide is closed
+
+                    setOnboardSuccessPostContent(post.first_post || null); // Pass content
+
+                    // Update DB to mark as complete now
+                    const { error: updateError } = await supabase
+                        .from('first_post_idea')
+                        .update({ in_progress: false, welcome_complete: true })
+                        .eq('id', post.id);
+
+                    if (updateError) {
+                        console.error('UserDashboard: Error resetting in_progress/welcome_complete status after showing success:', updateError);
+                    } else {
+                        console.log('UserDashboard: in_progress/welcome_complete status reset for post ID after showing success:', post.id);
+                    }
+                } else if (post.welcome_complete === true || post.save_close === true) {
+                    // Scenario: User completed the welcome flow (either connected or saved/closed).
+                    // Do nothing, keep WelcomeGuide closed.
+                    //console.log('UserDashboard: Welcome flow already completed or saved and closed.');
+                    setIsWelcomeGuideOpen(false);
+                } else {
+                    // Any other unexpected state of the post
+                    console.log('UserDashboard: Post found in unexpected state. Opening WelcomeGuide for re-evaluation.');
+                    setFirstPostContent(post.first_post); // Pre-fill if content exists
+                    setFirstPostId(post.id);
+                    setIsWelcomeGuideOpen(true); // Open guide to let user decide
+                }
+            } else {
+                // Scenario: No post records found at all for this user.
+                // This means it's a truly new user, so open the WelcomeGuide.
+                console.log('UserDashboard: No post history found. Opening WelcomeGuide for a fresh start.');
+                setFirstPostContent(null);
+                setFirstPostId(null);
+                setIsWelcomeGuideOpen(true); // <<< CHANGED: Ensure it opens for truly new users
+            }
+        } catch (fetchError) {
+            console.error('UserDashboard: Unexpected error in fetching first post:', fetchError);
+            setFirstPostContent(null);
+            setFirstPostId(null);
+            setIsWelcomeGuideOpen(true); // Fallback to opening if an unexpected error occurs
+        } finally {
+            setIsLoadingPost(false);
+        }
+    };
+
+    useEffect(() => {
+        checkAndLoadFlowStatus();
+    }, [searchParams, location.pathname, navigate]);
+  
+  
+  const handleWelcomeGuideComplete = (dataFromGuide: WelcomeGuideCompleteData) => {
+    console.log('Welcome Guide completed with data:', dataFromGuide);
+    setIsWelcomeGuideOpen(false); // Always close the WelcomeGuide modal when it completes
+
+    // Scenario 1: User chose to "Save and Close"
+    if (dataFromGuide.save_close === true) {
+        if (dataFromGuide.first_post) {
+            setSaveAndClosePostContent(dataFromGuide.first_post);
+        }
+        setShowSaveAndCloseSuccess(true); 
+    }
+    // Scenario 2: User successfully connected to a social channel (e.g., Bluesky)
+    else if (dataFromGuide.status === 'success' && dataFromGuide.selectedSocialChannel) {
+        handleConnectionSuccess(dataFromGuide.selectedSocialChannel, dataFromGuide.postContent);
+    }
+};
+
+  // Handlers to close the new success modals
+    const handleCloseOnboardSuccessModal = () => setShowOnboardSuccess(false);
+  
+    const handleCloseSaveAndCloseSuccessModal = () => setShowSaveAndCloseSuccess(false);
+
+  const openWelcomeGuide = () => {
+    setIsWelcomeGuideOpen(true);
+  };
+
+  
+  const handleOpenActiveCampaignModal = async () => {
+       //----------- Start Checking Limits Here --------------// 
+     if (isLoading || isCheckingLimits) {
+          return; // Already busy with something
+        }
+
+      console.log("Starting limit check...");
+      const canProceed =  await checkActionLimits('freeTrialEnded');
+
+      if (!canProceed) {
+            console.log("Limit check failed. Modal should be open. Returning.");
+            return; // This return is crucial and should prevent anything below from running
+        } else {
+
+        console.log("Limit check passed. Proceeding with campaign creation logic.");
+        setUserMessage('');
+        setIsCalendarListOpen(true);
+      }
+       
+       //-------------- End Checking Limits Here --------------- //
+      
+    }
+  
+
+  const handleOpenFirstPostModal = async () => {
+      //----------- Start Checking Limits Here --------------// 
+     if (isLoading || isCheckingLimits) {
+          return; // Already busy with something
+        }
+
+      console.log("Starting limit check...");
+      const canProceed = await checkActionLimits('freeTrialEnded');
+
+      if (!canProceed) {
+            console.log("Limit check failed. Modal should be open. Returning.");
+            return; // This return is crucial and should prevent anything below from running
+        } else {
+
+        console.log("Limit check passed. Proceeding with campaign creation logic.");
+        setUserMessage('');
+        setIsFirstPostModalOpen(true);
+      }
+       //-------------- End Checking Limits Here --------------- //
+        
+  };
+
+
+const handleOpenDraftPost = async () => {  
+   //----------- Start Checking Limits Here --------------// 
+     if (isLoading || isCheckingLimits) {
+          return; // Already busy with something
+        }
+
+      console.log("Starting limit check...");
+      const canProceed = await checkActionLimits('freeTrialEnded');
+
+      if (!canProceed) {
+            console.log("Limit check failed. Modal should be open. Returning.");
+            return; // This return is crucial and should prevent anything below from running
+        } else {
+
+        console.log("Limit check passed. Proceeding with campaign creation logic.");
+        setUserMessage('');
+        setIsDraftPostsOpen(true);
+      }
+       //-------------- End Checking Limits Here --------------- //
+  
+};
+
+const handleOpenScheduledPost = async () => {
+   //----------- Start Checking Limits Here --------------// 
+     if (isLoading || isCheckingLimits) {
+          return; // Already busy with something
+        }
+
+      console.log("Starting limit check...");
+      const canProceed = await checkActionLimits('freeTrialEnded');
+
+      if (!canProceed) {
+            console.log("Limit check failed. Modal should be open. Returning.");
+            return; // This return is crucial and should prevent anything below from running
+        } else {
+
+        console.log("Limit check passed. Proceeding with campaign creation logic.");
+        setUserMessage('');
+        setIsScheduledPostsOpen(true);
+      }
+       //-------------- End Checking Limits Here --------------- //
+  
+}; 
+
+    const handleCloseFirstPostModal = () => {
+    setIsFirstPostModalOpen(false);
+  };
+
+  const handleEditFirstPost = (content: string) => {
+    setIsFirstPostModalOpen(false); // Close the modal
+    // Navigate to the ComposePosts page and pass the content via state
+    navigate('/dashboard/compose', { state: { draftContent: content } });
+  };
+
+   const handleToggleShowPostInModal = (postId: string, showPost: boolean) => {
+    // You might want to refresh dashboard metrics here if needed
+    // For now, just close the modal as the DB update is handled internally
+    setIsFirstPostModalOpen(false);
+  };
+  
+  useEffect(() => {
+    const fetchDashboardMetrics = async () => {
+      try {
+        setIsLoading(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user?.email) return;
+
+        // Get today's date
+        const today = new Date();
+        const formattedToday = format(today, 'yyyy-MM-dd');
+
+        // Calculate next week's date range
+        const nextWeekStart = addDays(today, 1);
+        const nextWeekEnd = addDays(today, 7);
+        
+        // 1. Fetch today's posts
+        const { data: todayPosts, error: todayError } = await supabase
+          .from('user_post_schedule')
+          .select('id, schedule_status, sent_post, draft_status')
+          .eq('user_email', session.user.email)
+          .eq('content_date', formattedToday);
+
+        if (todayError) throw todayError;
+
+        // 2. Fetch draft posts
+        const { data: draftPosts, error: draftError } = await supabase
+          .from('user_post_draft')
+          .select('id')
+          .eq('user_email', session.user.email)
+          .eq('draft_status', true);
+
+        if (draftError) throw draftError;
+
+        // 3. Fetch calendars
+        const { data: calendars, error: calendarError } = await supabase
+          .from('calendar_questions')
+          .select('calendar_name, active')
+          .eq('email', session.user.email)
+          .eq('deleted', false)
+          .eq('active', true);
+
+        if (calendarError) throw calendarError;
+
+        // 4. Calculate streak (posts sent on consecutive days)
+        // For this example, we'll simulate a streak calculation
+        const { data: recentPosts, error: recentError } = await supabase
+          .from('user_post_schedule')
+          .select('content_date, sent_post')
+          .eq('user_email', session.user.email)
+          .eq('sent_post', true)
+          .order('content_date', { ascending: false })
+          .limit(30); // Get last 30 days of posts
+
+        if (recentError) throw recentError;
+
+        // Calculate streak based on consecutive days with posts
+        let streak = 0;
+        if (recentPosts && recentPosts.length > 0) {
+          const sortedDates = [...recentPosts]
+            .sort((a, b) => new Date(b.content_date).getTime() - new Date(a.content_date).getTime())
+            .map(post => post.content_date);
+          
+          // Remove duplicates (multiple posts on same day)
+          const uniqueDates = [...new Set(sortedDates)];
+          
+          // Check if there's a post today
+          const hasPostToday = uniqueDates.includes(formattedToday);
+          
+          if (hasPostToday) {
+            streak = 1; // Start with today
+            let checkDate = addDays(parseISO(formattedToday), -1);
+            
+            for (let i = 1; i < 30; i++) {
+              const checkDateStr = format(checkDate, 'yyyy-MM-dd');
+              if (uniqueDates.includes(checkDateStr)) {
+                streak++;
+                checkDate = addDays(checkDate, -1);
+              } else {
+                break; // Streak broken
+              }
+            }
+          }
+        }
+
+        // 5. Fetch next week's posts
+        const { data: nextWeekPosts, error: nextWeekError } = await supabase
+          .from('user_post_schedule')
+          .select('id')
+          .eq('user_email', session.user.email)
+          .eq('schedule_status', true)
+          .gte('content_date', format(nextWeekStart, 'yyyy-MM-dd'))
+          .lte('content_date', format(nextWeekEnd, 'yyyy-MM-dd'));
+
+        if (nextWeekError) throw nextWeekError;
+
+        // Update metrics state
+        setMetrics({
+          todayPosts: {
+            total: todayPosts?.length || 0,
+            disabled: todayPosts?.filter(p => p.draft_status).length || 0,
+            scheduled: todayPosts?.filter(p => p.schedule_status && !p.sent_post).length || 0,
+            sent: todayPosts?.filter(p => p.sent_post).length || 0
+          },
+          drafts: draftPosts?.length || 0,
+          calendars: {
+            total: calendars?.length || 0,
+            active: calendars?.filter(c => c.active).length || 0,
+            inactive: calendars?.filter(c => !c.active).length || 0
+          },
+          streak,
+          nextWeekPosts: nextWeekPosts?.length || 0
+        });
+
+      } catch (err) {
+        console.error('Error fetching dashboard metrics:', err);
+        setError('Failed to load dashboard data');
+      } finally {
+        setIsLoading(false);
+      }
+      // Show Onboarding Modal here if it's TRUE
+      //console.log('Show Onboarding Activity: ', on_boarding_active)
+      //if(on_boarding_active === true) {
+       //}
+      setShowOnboardingModal(true);
+     
+    };
+
+    fetchDashboardMetrics();
+  }, []);
+
+  const handleCreatePost = async () => {
+    //----------- Start Checking Limits Here --------------// 
+     if (isLoading || isCheckingLimits) {
+          return; // Already busy with something
+        }
+
+      console.log("Starting limit check...");
+      const canProceed = await checkActionLimits('freeTrialEnded');
+
+      if (!canProceed) {
+            console.log("Limit check failed. Modal should be open. Returning.");
+            return; // This return is crucial and should prevent anything below from running
+        }
+
+        console.log("Limit check passed. Proceeding with campaign creation logic.");
+        setUserMessage('');
+        return;
+       //-------------- End Checking Limits Here --------------- //
+    navigate('/dashboard/compose');
+  };
+
+ const handleSchedulePost = async () => {
+   //----------- Start Checking Limits Here --------------// 
+     if (isLoading || isCheckingLimits) {
+          return; // Already busy with something
+        }
+
+      console.log("Starting limit check...");
+      const canProceed = await checkActionLimits('freeTrialEnded');
+
+      if (!canProceed) {
+            console.log("Limit check failed. Modal should be open. Returning.");
+            return; // This return is crucial and should prevent anything below from running
+        } else {
+
+        console.log("Limit check passed. Proceeding with campaign creation logic.");
+        setUserMessage('');
+         navigate('/dashboard/schedule');
+      }
+       //-------------- End Checking Limits Here --------------- //
+   
+  };
+  
+ const handleCreateCampaign = async() => {
+   //----------- Start Checking Limits Here --------------// 
+     if (isLoading || isCheckingLimits) {
+          return; // Already busy with something
+        }
+
+      console.log("Starting limit check...");
+      const canProceed = await checkActionLimits('freeTrialEnded');
+
+      if (!canProceed) {
+            console.log("Limit check failed. Modal should be open. Returning.");
+            return; // This return is crucial and should prevent anything below from running
+        } else {
+
+        console.log("Limit check passed. Proceeding with campaign creation logic.");
+        setUserMessage('');
+        navigate('/dashboard/campaign');
+
+      }
+        
+       //-------------- End Checking Limits Here --------------- //
+    
+   
+  };
+
+  const handleSelectCalendarFromSidebar = (calendarName: string) => {
+    // Close the sidebar first if it's open
+    setIsCalendarListOpen(false);
+    // Navigate to the ShowCalendarContent route, passing the calendarName
+    navigate(`/dashboard/calendars?calendar=${calendarName}`);
+  };
+
+  // Function to open the onboarding modal
+  const handleOpenOnboardingModal = () => {
+    setShowOnboardingModal(true);
+  };
+
+  // Function to close the onboarding modal (passed to the modal as a prop)
+  const handleCloseOnboardingModal = () => {
+    setShowOnboardingModal(false);
+  };
+  
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
+        {error}
+      </div>
+    );
+  }
+
+  return (
+<div className="p-4 bg-white min-h-screen"> {/* Subtle background */}
+    <div className="max-w-8xl mx-auto">
+      
+      {/*Header Section Start */}
+      <div className="flex items-center space-x-2 mb-8">
+          <div className="p-2 bg-blue-50 rounded-full">
+            <LayoutDashboard className="w-5 h-5 text-blue-500"/>
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900">Dashboard</h2>
+        </div>
+        {/*Header Section End */}
+
+      {/*
+      <div className="mb-8">
+        <h1 className="text-3xl font-extrabold text-gray-900 leading-tight">Hey!👋</h1>
+        <p className="text-gray-600 mt-1 text-lg">Welcome back! Here's an overview of your social media activity.</p>
+      </div>
+      */}
+
+      <div className="mb-8">
+          {/* Placement of the trigger button for the Onboarding Modal */}
+          {/* This button gives users control to open the modal whenever they want */}
+        <div className="mb-6 flex justify-end"> {/* Align to the right */}
+
+  {onboardingActive && (
+                  <button
+                    onClick={handleOpenOnboardingModal}
+                    className="flex items-center justify-center space-x-2 px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-50 transition-colors"
+                  >           
+                  <Layers className="w-4 h-4 text-green-700 mr-2"/>          
+                    View Onboarding Progress
+                  </button>
+    )}
+                </div>
+        <div className="flex justify-between items-start mb-4"> {/* Added flex container */}
+           
+          {/* Left-aligned text */}
+            <div>
+             
+              <h1 className="text-3xl font-semibold text-gray-900 leading-tight">Hey!👋</h1>
+              <p className="text-gray-600 mt-1 text-lg">Welcome back! Here's an overview of your social media activity.</p>
+            </div>
+
+         
+
+          {/* Right-aligned Create New Campaign button */}
+
+        </div>
+
+  <div className="flex mt-8 space-x-4 ">
+  <TooltipExtended text="⚡Watch | See how weeks of client-engaging content gets created in seconds.(1min)">
+    <div>
+       <VideoPillButton
+         videoTitle={videoTitleCreateCampaign}
+         videoDescription={videoDescriptionCreateCampaign}
+         thumbnailUrl={thumbnailUrlCreateCampaign}
+         videoUrl={videoUrlCreateCampaign}
+         onClick={handlePlayVideo}
+       />
+    </div>     
+    </TooltipExtended>  
+<TooltipExtended text="⚡Watch | Learn how one campaign can generate months of content on demand.(1min)">
+     <div>
+       <VideoPillButton
+         videoTitle={videoTitleSchedule}
+         videoDescription={videoDescriptionSchedule}
+         thumbnailUrl={thumbnailUrlSchedule}
+         videoUrl={videoUrlSchedule}
+         onClick={handlePlayVideo}
+       />
+    </div>
+</TooltipExtended>
+
+<TooltipExtended text="⚡Watch | Go beyond just campaigns, get SoSavvy to write platform specific posts.(2mins)">    
+    <div>
+       <VideoPillButton
+         videoTitle={videoTitleCampaignOverview}
+         videoDescription={videoDescriptionCampaignOverview}
+         thumbnailUrl={thumbnailUrlCampaignOverview}
+         videoUrl={videoUrlCampaignOverview}
+         onClick={handlePlayVideo}
+       />
+    </div>   
+</TooltipExtended>   
+</div>
+        
+      </div>
+
+      {/*Start New Main Metrics & Quick Actions */}
+
+<div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+  {/* Column 1: Main Activity Metrics */}
+  <div className="flex flex-col gap-6">
+    {/* Card: Today's Activity */}
+    <a
+      //onClick={() => setIsScheduledPostsOpen(true)}
+      onClick={handleOpenScheduledPost}
+      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+    >
+      <div className="flex items-center">
+        <div className="rounded-full bg-blue-100 items-center p-1 mr-3">
+          {/*<Calendar className={`w-5 h-5 ${PRIMARY_COLOR_CLASSES.text}`} />*/}
+          <Calendar className="w-5 h-5 text-blue-500"/>
+        </div> 
+        <div>
+          <TooltipExtended text="⚡See what's scheduled, sent or simply disabled for today">
+            <div className="font-medium text-gray-900">Today's Activity</div>
+          </TooltipExtended>
+          <div className="text-xs text-gray-600">
+            View {metrics.todayPosts.total} post{metrics.todayPosts.total !== 1 ? 's' : ''} today
+          </div>
+        </div>
+          
+      </div>
+      <ChevronRight className="w-4 h-4 text-gray-500" />
+    </a>
+
+    {/* Card: Draft Posts */}
+    <a
+      //onClick={() => setIsDraftPostsOpen(true)}
+      onClick ={handleOpenDraftPost}
+      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+    >
+      <div className="flex items-center">
+        <div className="rounded-full bg-blue-100 items-center p-1 mr-3">
+            <Save className="w-5 h-5 text-blue-500" />
+        </div> 
+        <div>
+          <TooltipExtended text="⚡Click to View/Edit/Delete all your saved drafts here">
+          <div className="font-medium text-gray-900">Saved Drafts</div>
+          </TooltipExtended>
+          <div className="text-xs text-gray-600">
+            {metrics.drafts} post{metrics.drafts !== 1 ? 's' : ''} in progress
+          </div>
+        </div>
+      </div>
+      <ChevronRight className="w-4 h-4 text-gray-500" />
+    </a>
+
+    {/* Card: Upcoming Campaigns */}
+    <a
+      //onClick={() => setIsCalendarListOpen(true)}
+      onClick={handleOpenActiveCampaignModal}
+      
+      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+    >
+      <div className="flex items-center">
+        <div className="rounded-full bg-blue-100 items-center p-1 mr-3">
+        <CalendarSearch className="w-5 h-5 text-blue-500" />
+        </div>
+        <div>
+          <TooltipExtended text="⚡Click to view your campaigns. date started, days left & more">
+          <div className="font-medium text-gray-900">Active Campaigns</div>
+          </TooltipExtended>
+          <div className="text-xs text-gray-600">
+            Manage {metrics.calendars.total} active campaign{metrics.calendars.total !== 1 ? 's' : ''}
+          </div>
+        </div>
+      </div>
+      <ChevronRight className="w-4 h-4 text-gray-500" />
+    </a>
+
+     {/* Card: First Post Idea */}
+    <a
+      //onClick={() => setIsCalendarListOpen(true)}
+      onClick={handleOpenFirstPostModal}
+      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+    >
+      <div className="flex items-center">
+        <div className="rounded-full bg-blue-100 items-center p-1 mr-3">
+        <Send className="w-5 h-5 text-blue-500" />
+        </div>
+        <div>
+          <TooltipExtended text="⚡Click here to view your first post created when you joined">
+          <div className="font-medium text-gray-900">Your First Post</div>
+          </TooltipExtended>
+          
+          <div className="text-xs text-gray-600">
+            Review the first post you created 
+          </div>
+        </div>
+      </div>
+      <ChevronRight className="w-4 h-4 text-gray-500" />
+    </a>
+  </div>
+
+  {/* Column 2: Posting Streak Card */}
+  <div className="flex flex-col gap-6 border border-blue-50 hover:border-blue-100 
+    bg-gradient-to-t from-blue-100 via-white via-white via-white to-white
+    
+    rounded-lg"> {/* Ensure this is still a flex column for consistent spacing */}
+    {/* Card: Posting Streak (Motivational) */}
+    <div className="card p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+          <div className="rounded-full bg-blue-100 items-center p-1 mr-1">
+            <Flame className="w-5 h-5 text-blue-500" />
+          </div>
+          Posting Streak
+        </h3>
+      </div>
+
+      {/* Main Metric & Emojis */}
+      <div className="flex items-baseline space-x-2 mb-6">
+        <p className="text-4xl font-bold text-gray-900">{metrics.streak}</p>
+        <span className="text-lg text-gray-600">days</span>
+        <span className="ml-2 text-2xl">
+          {metrics.streak >= 10 ? '🔥' : (metrics.streak > 0 ? '✨' : '')}
+        </span>
+      </div>
+
+      {/* Description & Progress Bar */}
+      <div className="mt-auto mb-6">
+        <p className="text-sm text-gray-600 mb-3">
+          {metrics.streak > 0
+            ? `You've posted ${metrics.streak} day${metrics.streak !== 1 ? 's' : ''} in a row! Keep up the great work.`
+            : 'Start posting today to build your streak! 🔥'}
+        </p>
+        <div className="w-full bg-gray-100 rounded-full h-2.5">
+          <div
+            className={`h-2.5 rounded-full ${PRIMARY_COLOR_CLASSES.bg}`}
+            style={{ width: `${Math.min(100, metrics.streak * 10)}%` }}
+          ></div>
+        </div>
+          
+      </div>
+
+          {/*----------------- Start Button to Generate Posts ------------------*/}
+{/*
+      <span className="py-4 items-center justify-center">
+    <TooltipExtended text="⚡Get a full calendar of posts and ideas in just a few seconds" >
+          <button
+            onClick={handleCreateCampaign}
+            className="text-white font-medium justify-center inline-flex items-center px-4 py-2 rounded-full text-base
+           bg-blue-500 border border-blue-500 rounded-md hover:border-blue-500 hover:bg-blue-600 transition-all group shadow-lg shadow-blue-500/60 hover:shadow-xl hover:shadow-blue-500/80"
+            >
+              <Sparkles className="w-4 h-4 mr-2 text-blue-50 fill-blue-500 animate-ping" /> 
+                Start Here!
+              <ArrowRight className="ml-2 w-4 h-4 text-white transition-transform duration-300 group-hover:translate-x-1"/>
+            </button>
+        </TooltipExtended>
+    </span>
+ */}
+    {/*------------------End Button to Generate Posts ----------------------*/}
+      
+    </div>
+
+{/*----------------- Start Button to Generate Posts ------------------*/}
+
+<span className="py-4 px-4 items-center justify-center">
+    <TooltipExtended text="⚡Get a full calendar of posts and ideas in just a few seconds" >
+          <button
+            onClick={handleCreateCampaign}
+            className="text-white font-medium justify-center inline-flex items-center px-4 py-2 rounded-full text-base
+           bg-blue-500 border border-blue-500 rounded-md hover:border-blue-500 hover:bg-blue-600 transition-all group shadow-lg shadow-blue-500/60 hover:shadow-xl hover:shadow-blue-500/80"
+            >
+              <Sparkles className="w-4 h-4 mr-2 text-blue-50 fill-blue-500 animate-ping" /> {/* Reduced icon size */}
+                Start Here!
+              <ArrowRight className="ml-2 w-4 h-4 text-white transition-transform duration-300 group-hover:translate-x-1"/>
+            </button>
+        </TooltipExtended>
+    </span>
+
+    {/*------------------End Button to Generate Posts ----------------------*/}
+    
+  </div>
+
+  {/* Column 3: Upcoming Posts Card */}
+  <div className="flex flex-col gap-6 border border-blue-50 hover:border-blue-100 
+    bg-gradient-to-t from-blue-100 via-white via-white via-white to-white rounded-lg"> {/* Ensure this is also a flex column for consistent spacing */}
+    {/* Card: Upcoming Posts (Planning) */}
+    <div className="card p-6 flex flex-col justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 space-x-2">
+        <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+          <div className="rounded-full bg-blue-100 items-center p-1 mr-1">
+          <Clock className="w-5 h-5 text-blue-500" />
+          </div>  
+          Upcoming Posts
+        </h3>
+      </div>
+
+      {/* Main Metric */}
+      <div className="flex items-baseline space-x-2 mb-6">
+        <p className="text-4xl font-bold text-gray-900">{metrics.nextWeekPosts}</p>
+        <span className="text-lg text-gray-600">scheduled for next 7 days</span>
+      </div>
+
+      {/* Description */}
+      <div className="mb-6">
+        <p className="text-sm text-gray-600">
+          {metrics.nextWeekPosts > 0
+            ? `You have ${metrics.nextWeekPosts} post${metrics.nextWeekPosts !== 1 ? 's' : ''} confirmed for the upcoming week.`
+            : 'No posts scheduled for next week yet. Create a content campaign in 60 seconds! 🚀'}
+        </p>
+      </div>
+
+      {/* Call to Action Button 
+      <div className="mt-auto sm:mt-6">
+      <TooltipExtended text="⚡Add your posts to existing time slots OR create new time slots" >
+        <button
+          onClick={handleSchedulePost}
+          className="flex items-center justify-center w-full py-2 px-4 rounded-md bg-gray-100 text-gray-700 font-medium border border-gray-500
+                    transition-colors hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50"
+        >
+          <PlusCircle className="mr-2 w-4 h-4" />
+          <span>Schedule Posts</span>
+          
+        </button>
+      </TooltipExtended>
+      </div>
+          */}
+      
+    </div>
+      {/* ------------------- Call to Action Schedule Button ------------------ */}
+    {/*<div className="mt-auto sm:mt-6">*/}
+    <div className="mt-auto py-4 px-4 items-center justify-center">
+      <TooltipExtended text="⚡Add your posts to existing time slots OR create new time slots" >
+        <button
+          onClick={handleSchedulePost}
+          className="relative flex items-center justify-center w-full py-2 px-4 rounded-md bg-gray-100 text-gray-600 font-normal border border-gray-500
+                    transition-colors hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50"
+        >
+          <PlusCircle className="mr-2 w-4 h-4" />
+          <span>Schedule Posts</span>
+          
+        </button>
+      </TooltipExtended>
+      </div>
+      {/* ------------------- Call to Action Schedule Button ------------------ */}
+  </div>
+</div>
+  {/*End New Main Metrics & Quick Actions*/}
+
+      
+      {/* --- Quick Compose Button (Always Available) --- 
+      <div className="mt-10 text-center">
+        <button
+          onClick={openWelcomeGuide}
+          className={`inline-flex items-center px-8 py-4 rounded-full text-lg font-semibold shadow-xl
+                      ${PRIMARY_COLOR_CLASSES.bg} text-white ${PRIMARY_COLOR_CLASSES.hoverBg}
+                      transform transition-transform duration-200 hover:-translate-y-1
+                      shadow-xl shadow-blue-500/50
+                      `}
+        >
+          <Sparkles className="w-6 h-6 mr-3" />
+          Start Welcome Guide
+        </button>
+      </div>
+      */}
+
+    </div>
+
+    <div className="px-4 py-4 sm:px-0 bg-gradient-to-b from-gray-50 via-gray-50 via-white via-white to-white rounded-lg ">    
+      <div className="flex items-center space-x-2 py-4 px-2 mb-8 border-b border-gray-200">
+      <div className="p-2 bg-green-100 rounded-full">
+              <CalendarCheck className="w-5 h-5 text-green-700"/>
+          </div>
+              <h2 className="text-xl font-semibold text-gray-500">Post Calendar</h2>        
+      </div>
+          {/* NEW: Integrate the CalendarView component here */}
+          <CalendarView />
+    </div>
+
+    {/* Side Panels - These remain outside the main dashboard content */}
+    <ScheduledPostsToday
+      isOpen={isScheduledPostsOpen}
+      onClose={() => {
+        setIsScheduledPostsOpen(false);
+        setIsDraftPostsOpen(false);  
+        setIsCalendarListOpen(false)
+      }}
+    />
+    <DraftPostModalDashboard
+      isOpen={isDraftPostsOpen}
+      onClose={() => {
+        setIsDraftPostsOpen(false);
+        setIsCalendarListOpen(false);
+        setIsScheduledPostsOpen(false)
+      }}
+      onContinueDraft={(content, socialChannel, userHandle) => {
+        setIsDraftPostsOpen(false);
+        //navigate('/dashboard/compose'); // Assuming this takes you to compose page
+        navigate('/dashboard/compose', { state: { draftContent: content } });
+      }}
+    />
+    <CalendarListSidePanel
+      isOpen={isCalendarListOpen}
+      //isOpen={handleOpenActiveCampaignModal}
+      onClose={() => {
+        setIsCalendarListOpen(false);
+        setIsDraftPostsOpen(false);
+        setIsScheduledPostsOpen(false)
+      }}
+      onSelectCalendar={handleSelectCalendarFromSidebar}
+      //onSelectCalendar={(calendarName) => {
+        //navigate(`/dashboard/calendars?calendar=${calendarName}`); }}
+    />
+
+     {/* Conditionally render the WelcomeGuide component */}
+      <WelcomeGuide
+        isOpen={isWelcomeGuideOpen}
+        onClose={() => setIsWelcomeGuideOpen(false)}
+        onComplete={handleWelcomeGuideComplete}
+        selectedContentIdea={selectedContentIdeaId} // <-- Pass the ID here
+        postToUpdate={currentPostIdeaRecord}   // <-- Pass the full record here
+        
+      />
+
+    {/* OnboardSuccessPage Modal (self-contained) */}
+      <OnboardSuccessPage
+        isOpen={showOnboardSuccess}
+        onClose={handleCloseOnboardSuccessModal}
+        postContent={onboardSuccessPostContent}
+      />
+
+      {/* SaveAndClosePage Modal (self-contained) */}
+      <SaveAndClosePage
+        isOpen={showSaveAndCloseSuccess}
+        onClose={handleCloseSaveAndCloseSuccessModal}
+        postContent={saveAndClosePostContent}
+      />
+
+    {/* Render the FirstPostModal component */}
+    <FirstPostModal
+        isOpen={isFirstPostModalOpen}
+        onClose={handleCloseFirstPostModal}
+        onEdit={handleEditFirstPost}
+        onToggleShowPost={handleToggleShowPostInModal}
+      />
+
+    {/* Upgrade Modal After Free Trial Runs Out */}
+      <UpgradePlanModal
+          isOpen={isUpgradeModalOpen}
+          onClose={handleCloseUpgradeModal}
+          message={modalMessage} 
+        />
+
+    {showOnboardingModal && onboardingActive && !isWelcomeGuideOpen && (
+        <OnboardingModal
+          isOpen={showOnboardingModal}
+          onClose={handleCloseOnboardingModal}
+        />
+      )}
+
+    {/* Render the video modal if open */}
+      {isVideoModalOpen && (
+        <VideoPlayerModal
+          videoUrl={currentPlayingVideoUrl}
+          onClose={handleCloseVideoModal}
+        />
+      )}
+    
+  </div>
+);
+}
+
+export default UserDashboard;
