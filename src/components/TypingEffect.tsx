@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react';
 interface TypingEffectProps {
   text: string; // The full text to be displayed with a typing effect
   speed?: number; // Optional: Speed of typing in milliseconds per character (default to 50ms)
-  onComplete?: () => void; // Optional: Callback function when typing is complete
+  onComplete?: () => void; // Optional: Callback function when typing is complete...
 }
 
 export function TypingEffect({ text, speed = 50, onComplete }: TypingEffectProps) {
