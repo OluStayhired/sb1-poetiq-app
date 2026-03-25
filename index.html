@@ -1,31 +1,47 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- ... existing tags ... -->
+    <!---- DYNAMIC_META_INJECTION ----> 
+    <!-- ... existing tags ... -->
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="https://sosavvy.so/images/sosavvy-logo-48.svg"> 
+    <!--link rel="icon" type="image/svg+xml" href="https://poetiq.io/images/poetiq-logo-48x48.png"-->
+    <link rel="icon" type="image/svg+xml" href="https://poetiq.io/images/poetiq-target-logo-v2-48x48.png">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SoSavvy - Create & Schedule content that gets you customers on LinkedIn and Twitter</title>
-    <meta name="description" content="SoSavvy makes it easy for founders and freelancers to create high converting content on LinkedIn, Twitter(X) and Bluesky." />
-    <meta name="keywords" content="SoSavvy brainstorms and writes months of high converting content on LinkedIn, Twitter(X) and Bluesky in minutes." />  
-    <meta property="og:title" content="Create and Schedule months of social media content in minutes" />
-    <meta property="og:description" content="SoSavvy brainstorms and writes months of high converting content on LinkedIn, Twitter(X) and Bluesky in minutes." />
-    <meta property="og:image" content="https://sosavvy.so/images/sosavvy_meta_img_v2.png" />
-    <meta name="twitter:card" content="https://sosavvy.so/images/sosavvy_meta_img_v2.png" /> 
-    <meta name="twitter:title" content="Create and Schedule months of social media content in minutes" />
-    <meta name="twitter:description" content="SoSavvy brainstorms and writes months of high converting content on LinkedIn, Twitter(X) and Bluesky in minutes." />
-    <script type="application/ld+json">
+
+     <!-- BASE META TAGS (IDs added for dynamic update by the script below) -->
+     <title id="base-title">Poetiq - Manage long-term care issues for Mom & Dad in one place</title>
+     <meta name="description"  content="Manage elder care logistics for Mom and Dad in one place. We take over the admin and fix their financial gaps. You focus on staying emotionally present for them."  id="base-description" />
+     <meta name="keywords" content="Manage elder care logistics for Mom and Dad in one place. We take over the admin and fix the financial gaps. You focus on staying emotionally present for them." id="base-keywords" />
+ 
+     <!-- Open Graph Tags (crucial for Facebook/LinkedIn) -->
+     <meta property="og:url" content="https://poetiq.io/" id="og-url" />
+     <!--<meta property="og:title" content="Meet your social media manager" id="og-title" /> -->
+     <meta property="og:title" content="The Long-Term Care Navigator - Poetiq" id="og-title" />
+     <meta property="og:description" content="Manage elder care logistics for Mom and Dad in one place. We take over the admin and fix the financial gaps. You focus on staying emotionally present for them." id="og-description" />
+     <meta property="og:image" content="https://poetiq.io/images/poetiq-meta-img-v6.png" id="og-image" />
+     <meta property="og:type" content="website" id="og-type" />
+ 
+     <!-- Twitter Card Tags (crucial for X/Twitter) -->
+     <meta name="twitter:card" content="summary_large_image" id="twitter-card" />
+     <meta name="twitter:title" content="The Long-Term Care Navigator - Poetiq" id="twitter-title" />
+     <meta name="twitter:description" content="Manage elder care logistics for Mom and Dad in one place. We take over the admin and fix the financial gaps. You focus on staying emotionally present for them."  id="twitter-description" />
+     <meta name="twitter:image" content="https://poetiq.io/images/poetiq-meta-img-v6.png" id="twitter-image" />
+
+     <!-- Placeholder for dynamic LD+JSON. Will be updated by script. -->
+     <script type="application/ld+json" id="ld-json-schema">
       {
         "@context": "https://schema.org",
         "@type": "WebPage",
-        "name": "Create and Schedule content to attract customers on LinkedIn and Twitter",
-        "description": "SoSavvy brainstorms and writes months of high converting content on LinkedIn, Twitter(X) and Bluesky in minutes.",
-        "url": "https://sosavvy.so/",
+        "name": "The Long-Term Care Navigator - Poetiq",
+        "description": "Manage elder care logistics for Mom and Dad in one place. We take over the admin and fix the financial gaps. You focus on staying emotionally present for them.",
+        "url": "https://poetiq.io/",
         "image": [
-          "https://sosavvy.so/images/sosavvy_meta_img_v2.png",  // Rectangular (Primary)
-          "https://sosavvy.so/images/sosavvy_meta_img_square.png" // Square
+          "https://poetiq.io/images/poetiq-meta-img-v6.png",
         ]
       }
-      </script>
+    </script>
+    
   </head>
   <body>
     <div id="root"></div>
